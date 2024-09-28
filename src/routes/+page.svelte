@@ -130,7 +130,7 @@
 
         // Create a gain node
         gainNode = audioCtx.createGain();
-        gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        gainNode.gain.setValueAtTime(gainLevel, audioCtx.currentTime);
 
         // If bitcrusher is enabled, create the bitcrusher node
         if(useBitcrusher) {
@@ -193,39 +193,149 @@
 
 <main>
     {#if isAudioSupported}
-        {#if !isAudioStarted}
-            <button on:click={startAudio}>Start Audio</button>
-        {/if}
-        {#if isAudioStarted}
-            <button on:click={stopAudio}>Stop Audio</button>
-        {/if}
-        <select bind:value={waveform} on:change={() => setWaveform(waveform)}>
-            {#each waveforms as { waveform }}
-                <option value={waveform}>{waveform}</option>
-            {/each}
-        </select>
-        <select bind:value={$note} on:change={updateNoteOrOctave}>
-            {#each notes as { note }}
-                <option value={note}>{note}</option>
-            {/each}
-        </select>
-        <select bind:value={$octave} on:change={updateNoteOrOctave}>
-            {#each Array.from({ length: 10 }, (_, i) => i) as i}
-                <option value={i}>{i}</option>
-            {/each}
-        </select>
-        <input type="range" min="1" max="6000" step="1" bind:value={$frequency} on:input={updateFrequency} />
-        <input type="number" min="1" max="6000" step="1" bind:value={$frequency} on:input={updateFrequency} />
-        <span>hz</span>
-        <input type="range" min="0" max="1" step="0.01" bind:value={gainLevel} on:change={() => setGain(gainLevel)} />
-        <span>{gainLevel}</span>
-        <label>
-            <input type="checkbox" bind:checked={useBitcrusher} />
-            Use Bitcrusher: {useBitcrusher}
-        </label>
-        <input type="range" min="1" max="16" step="1" bind:value={bitDepth} on:change={() => bitcrusherNode.port.postMessage({ bitDepth })} />
-        <input type="range" min="1" max="16" step="1" bind:value={sampleRateReduction} on:change={() => bitcrusherNode.port.postMessage({ sampleRateReduction })} />
-    {:else}
+
+        <div class="controls-panel">
+ 
+    
+    
+            <fieldset>
+                <legend>Tone</legend>
+
+                <!-- Playback button -->
+                <div class="control-group">
+                    {#if !isAudioStarted}
+                        <button class="audio-button play-button" on:click={startAudio}></button>
+                    {/if}
+                    {#if isAudioStarted}
+                        <button class="audio-button stop-button" on:click={stopAudio}></button>
+                    {/if}
+                </div>
+
+                <!-- Frequency adjust -->
+                <div class="control-group">
+                    <label for="frequency-number">Frequency:</label>
+                    <input id="frequency-slider" name="frequency-slider" type="range" min="1" max="6000" step="1" bind:value={$frequency} on:input={updateFrequency} />
+                    <input id="frequency-number" name="frequency-number" type="number" min="1" max="6000" step="1" bind:value={$frequency} on:input={updateFrequency} />
+                    <span>hz</span>
+                </div>
+    
+                <!-- Note selection -->
+                <div class="control-group">
+                    <label for="note-select">Note:</label>
+                    <select id="note-select" name="note-select" bind:value={$note} on:change={updateNoteOrOctave}>
+                        {#each notes as { note }}
+                            <option value={note}>{note}</option>
+                        {/each}
+                    </select>
+                    <label for="octave-select">Octave:</label>
+                    <select id="octave-select" name="octave-select" bind:value={$octave} on:change={updateNoteOrOctave}>
+                        {#each Array.from({ length: 10 }, (_, i) => i) as i}
+                            <option value={i}>{i}</option>
+                        {/each}
+                    </select>
+                </div>
+    
+                <!-- Waveform selection -->
+                <div class="control-group">
+                    <label for="waveform-select">Waveform:</label>
+                    <select id="waveform-select" name="waveform-select" bind:value={waveform} on:change={() => setWaveform(waveform)}>
+                        {#each waveforms as { waveform }}
+                            <option value={waveform}>{waveform}</option>
+                        {/each}
+                    </select>
+                </div>
+            </fieldset>
+    
+            <!-- Volume/Gain adjust -->
+            <fieldset>
+                <div class="control-group">
+                    <label for="gain-slider">Volume (Gain): </label>
+                    <input id="gain-slider" type="range" min="0" max="1" step="0.01" bind:value={gainLevel} on:change={() => setGain(gainLevel)} />
+                    <span>{gainLevel}</span>
+                </div>
+            </fieldset>
+    
+            <!-- Bitcrusher process controls -->
+            <fieldset>
+                <legend>Bitcrusher</legend>
+                <div class="control-group">
+                    <label for="bitcrush-checkbox">Use Bitcrusher:</label>
+                    <input id="bitcrush-checkbox" name="bitcrush-toggle" type="checkbox" bind:checked={useBitcrusher} />
+                </div>
+    
+                <div class="control-group">
+                    <label for="bit-depth-slider">Bit depth: </label>
+                    <input id="bit-depth-slider" name="bit-depth" type="range" min="1" max="16" step="1" bind:value={bitDepth} on:change={() => bitcrusherNode.port.postMessage({ bitDepth })} />
+                </div>
+    
+                <div class="control-group">
+                    <label for="sample-rate-reduction-slider">Sample rate reduction:</label>
+                    <input id="sampe-rate-reduction-slider" name="sampe-rate-reduction-slider" type="range" min="1" max="16" step="1" bind:value={sampleRateReduction} on:change={() => bitcrusherNode.port.postMessage({ sampleRateReduction })} />
+                </div>
+            </fieldset>
+        </div>
+        
+    
+        {:else}
         <div>Your browser does not support the Web Audio API.</div>
     {/if}
 </main>
+
+<style>
+    fieldset {
+        border: 1px solid #ccc;
+        padding: 10px;
+        margin-bottom: 20px;
+        border-radius: 5px;
+    }
+
+    .control-group {
+        margin-bottom: 15px;
+    }
+
+    .control-group label {
+        display: block;
+        margin-bottom: 5px;
+    }
+
+    .control-group input,
+    .control-group select {
+        margin-bottom: 10px;
+        width: 100%;
+    }
+
+    .control-group span {
+        display: block;
+        margin-top: -10px;
+        margin-bottom: 10px;
+    }
+
+    .audio-button {
+        width: 50px;
+        height: 50px;
+        cursor: pointer;
+        position: relative;
+    }
+
+    .audio-button::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+    }
+
+    .play-button::before {
+        width: 0;
+        height: 0;
+        border-left: 20px solid green;
+        border-top: 12.5px solid transparent;
+        border-bottom: 12.5px solid transparent;
+    }
+
+    .stop-button::before {
+        width: 20px;
+        height: 20px;
+        background-color: red;
+    }
+</style>
