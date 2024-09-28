@@ -3,14 +3,21 @@
     import { frequency, note, octave } from '$lib/stores';
     import { getClosestNoteFromFrequency, generateNoteFrequencies } from '$lib/notes';
 
-    let audioCtx;
-    let oscillator;
-    let gainNode;
     let isAudioSupported = true;
     let isAudioStarted = false;
     let noteFrequencyMap;
 
+    let useBitcrusher = false;
+
+    let audioCtx;
+    let oscillator;
+    let gainNode;
+    let bitcrusherNode;
+    let bitDepth = 4; // Default bit depth
+    let sampleRateReduction = 8; // Default sample rate reduction
     let waveform = 'sine';
+    let gainLevel = 0.5;
+
 
     const notes = [
         { note: 'C' },
@@ -59,6 +66,12 @@
         }
     }
 
+    function setGain(gain) {
+        if (gainNode) {
+            gainNode.gain.setValueAtTime(gain, audioCtx.currentTime);
+        }
+    }
+
     function setWaveform(waveform) {
         if (oscillator) {
             oscillator.type = waveform;
@@ -77,29 +90,68 @@
         setFrequency(freq);
     }
 
-    function startAudio() {
+    async function initializeAudioContext() {
         if (!audioCtx) {
-            // Initialize the audio context
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-            // Create an oscillator node
-            oscillator = audioCtx.createOscillator();
-            oscillator.type = waveform;
-            oscillator.frequency.setValueAtTime(50, audioCtx.currentTime);
-
-            // Create a gain node
-            gainNode = audioCtx.createGain();
-            gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
-
-            // Connect the oscillator to the gain node and the gain node to the audio context's destination
-            oscillator.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-
-            // Start the oscillator
-            oscillator.start();
-        } else if (audioCtx.state === 'suspended') {
-            audioCtx.resume();
+            await audioCtx.audioWorklet.addModule('src/lib/bitcrusher-processor.js');
+            console.log('Audio context initialized');
+            console.log('Bitcrusher processor added');         
+            console.log('Audio context state:', audioCtx.state);
+            console.log('Audio context sample rate:', audioCtx.sampleRate);
         }
+        if (audioCtx.state === 'suspended') {
+            await audioCtx.resume();
+            console.log('Audio context already initialized. Resuming...');
+            console.log('Audio context state:', audioCtx.state);
+            console.log('Audio context sample rate:', audioCtx.sampleRate);
+        }
+    }
+
+    function disconnectAudioNodes() {
+        if (oscillator) {
+            oscillator.disconnect();
+        }
+        if (gainNode) {
+            gainNode.disconnect();
+        }
+        if (bitcrusherNode) {
+            bitcrusherNode.disconnect();
+        }
+    }
+
+    function createAudioNodes() {
+        // Disconnect and clear previous nodes if they exist
+        disconnectAudioNodes();
+
+        // Create an oscillator node
+        oscillator = audioCtx.createOscillator();
+        oscillator.type = waveform;
+        oscillator.frequency.setValueAtTime($frequency, audioCtx.currentTime);
+
+        // Create a gain node
+        gainNode = audioCtx.createGain();
+        gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+
+        // If bitcrusher is enabled, create the bitcrusher node
+        if(useBitcrusher) {
+            bitcrusherNode = new AudioWorkletNode(audioCtx, 'bitcrusher-processor', {
+                parameterData: {
+                    bitDepth: bitDepth,
+                    sampleRateReduction: sampleRateReduction
+                }
+            });
+            // Connect the nodes: Oscillator -> Bitcrusher -> Gain -> Destination
+            oscillator.connect(bitcrusherNode).connect(gainNode).connect(audioCtx.destination);
+        } else {
+            // Connect the nodes: Oscillator -> Gain -> Destination (no bitcrusher)
+            oscillator.connect(gainNode).connect(audioCtx.destination);
+        }
+    }
+
+    async function startAudio() {
+        await initializeAudioContext();
+        createAudioNodes();
+        oscillator.start();
 
         isAudioStarted = true;
     }
@@ -111,9 +163,23 @@
         isAudioStarted = false;
     }
 
+        // Reactive statement to restart audio when useBitcrusher changes
+    $: if (audioCtx && isAudioStarted) {
+        // Reconnect the nodes when bitcrusher toggled
+        disconnectAudioNodes();
+        if (useBitcrusher && !bitcrusherNode) {
+            bitcrusherNode = new AudioWorkletNode(audioCtx, 'bitcrusher-processor', {
+                parameterData: { bitDepth, sampleRateReduction }
+            });
+        }
+        if (useBitcrusher) {
+            oscillator.connect(bitcrusherNode).connect(gainNode).connect(audioCtx.destination);
+        } else {
+            oscillator.connect(gainNode).connect(audioCtx.destination);
+        }
+    }
 
-
-    onMount(() => {
+    onMount(async () => {
         if (!window.AudioContext && !window.webkitAudioContext) {
             isAudioSupported = false;
             return;
@@ -148,9 +214,17 @@
                 <option value={i}>{i}</option>
             {/each}
         </select>
-        <input type="range" min="1" max="15804" step="1" bind:value={$frequency} on:input={updateFrequency} />
-        <input type="number" min="1" max="15804" step="1" bind:value={$frequency} on:input={updateFrequency} />
+        <input type="range" min="1" max="6000" step="1" bind:value={$frequency} on:input={updateFrequency} />
+        <input type="number" min="1" max="6000" step="1" bind:value={$frequency} on:input={updateFrequency} />
         <span>hz</span>
+        <input type="range" min="0" max="1" step="0.01" bind:value={gainLevel} on:change={() => setGain(gainLevel)} />
+        <span>{gainLevel}</span>
+        <label>
+            <input type="checkbox" bind:checked={useBitcrusher} />
+            Use Bitcrusher: {useBitcrusher}
+        </label>
+        <input type="range" min="1" max="16" step="1" bind:value={bitDepth} on:change={() => bitcrusherNode.port.postMessage({ bitDepth })} />
+        <input type="range" min="1" max="16" step="1" bind:value={sampleRateReduction} on:change={() => bitcrusherNode.port.postMessage({ sampleRateReduction })} />
     {:else}
         <div>Your browser does not support the Web Audio API.</div>
     {/if}
