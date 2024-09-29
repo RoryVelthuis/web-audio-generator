@@ -1,22 +1,17 @@
 <script>
     import { onMount } from 'svelte';
-    import { frequency, note, octave } from '$lib/stores';
+    import { frequency, note, octave, gain, waveform, useBitcrusher, bitcrusherSettings } from '$lib/stores';
     import { getClosestNoteFromFrequency, generateNoteFrequencies } from '$lib/notes';
 
     let isAudioSupported = true;
     let isAudioStarted = false;
     let noteFrequencyMap;
 
-    let useBitcrusher = false;
-
     let audioCtx;
     let oscillator;
     let gainNode;
     let bitcrusherNode;
-    let bitDepth = 4; // Default bit depth
-    let sampleRateReduction = 8; // Default sample rate reduction
-    let waveform = 'sine';
-    let gainLevel = 0.5;
+
 
 
     const notes = [
@@ -41,148 +36,147 @@
         { waveform: 'triangle' }
     ];
 
-    function updateFrequency(event) {
-        let freq = event.target.value;
-        frequency.set(freq);
-        if (oscillator) {
-            oscillator.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        }
-
-        // Update note and octave if the frequency matches a predefined note
-        const closestNote = getClosestNoteFromFrequency(freq, noteFrequencyMap);
-
-        // If a note is found, update the note and octave
-        const matchedNote = closestNote.slice(0, -1); // All characters except the last one
-        const matchedOctave = parseInt(closestNote.slice(-1)); // The last character as an integer
-        if (matchedNote && matchedOctave !== undefined) {
-            note.set(matchedNote);
-            octave.set(matchedOctave);
-        }
-    }
-
-    function setFrequency(freq) {
-        frequency.set(freq);
-        if (oscillator) {
-            oscillator.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        }
-    }
-
-    function setGain(gain) {
-        if (gainNode) {
-            gainNode.gain.setValueAtTime(gain, audioCtx.currentTime);
-        }
-    }
-
-    function setWaveform(waveform) {
-        if (oscillator) {
-            oscillator.type = waveform;
-        }
-    }
-
-    function updateNoteOrOctave() {
-        let combined = $note + $octave; // Combine note and octave
-        let freq = noteFrequencyMap[combined]; // Get the frequency for the note
-        setFrequency(freq); // Set the frequency
-    }
-
-    function updateBitcrusherParameters() {
-        if (bitcrusherNode) {
-            bitcrusherNode.port.postMessage({ bitDepth, sampleRateReduction });
-        }
-    }
-
     
-
     async function initializeAudioContext() {
         if (!audioCtx) {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             await audioCtx.audioWorklet.addModule('src/lib/bitcrusher-processor.js');
             console.log('Audio context initialized');
-            console.log('Bitcrusher processor added');         
             console.log('Audio context state:', audioCtx.state);
-            console.log('Audio context sample rate:', audioCtx.sampleRate);
         }
         if (audioCtx.state === 'suspended') {
             await audioCtx.resume();
             console.log('Audio context already initialized. Resuming...');
             console.log('Audio context state:', audioCtx.state);
-            console.log('Audio context sample rate:', audioCtx.sampleRate);
         }
     }
 
-    function disconnectAudioNodes() {
-        if (oscillator) {
-            oscillator.disconnect();
-        }
-        if (gainNode) {
-            gainNode.disconnect();
-        }
-        if (bitcrusherNode) {
-            bitcrusherNode.disconnect();
-        }
-    }
 
     function createAudioNodes() {
         // Disconnect and clear previous nodes if they exist
-        disconnectAudioNodes();
+        if (oscillator) oscillator.disconnect();
+        if (gainNode) gainNode.disconnect();
 
         // Create an oscillator node
+        console.log('Creating oscillator node');
         oscillator = audioCtx.createOscillator();
-        oscillator.type = waveform;
+        oscillator.type = $waveform;
         oscillator.frequency.setValueAtTime($frequency, audioCtx.currentTime);
 
         // Create a gain node
+        console.log('Creating gain node');
         gainNode = audioCtx.createGain();
-        gainNode.gain.setValueAtTime(gainLevel, audioCtx.currentTime);
+        gainNode.gain.setValueAtTime($gain, audioCtx.currentTime);
+
+        console.log('Connecting oscillator to gain node and gain node to destination');
+        oscillator.connect(gainNode).connect(audioCtx.destination);
+
 
         // If bitcrusher is enabled, create the bitcrusher node
-        if(useBitcrusher) {
-            bitcrusherNode = new AudioWorkletNode(audioCtx, 'bitcrusher-processor', {
-                parameterData: {
-                    bitDepth: bitDepth,
-                    sampleRateReduction: sampleRateReduction
-                }
-            });
-            // Connect the nodes: Oscillator -> Bitcrusher -> Gain -> Destination
-            oscillator.connect(bitcrusherNode).connect(gainNode).connect(audioCtx.destination);
-        } else {
-            // Connect the nodes: Oscillator -> Gain -> Destination (no bitcrusher)
-            oscillator.connect(gainNode).connect(audioCtx.destination);
-        }
+        // if ($useBitcrusher) {
+        //     console.log('Bitcrusher is enabled, creating bitcrusher node');
+        //     bitcrusherNode = new AudioWorkletNode(audioCtx, 'bitcrusher-processor', {
+        //         parameterData: {
+        //             bitDepth: $bitcrusherSettings.bitDepth,
+        //             sampleRateReduction: $bitcrusherSettings.sampleRateReduction,
+        //         }
+        //     });
+        //     console.log('disconnecting oscillator and connecting bitcrusher');
+        //     oscillator.disconnect();
+        //     oscillator.connect(bitcrusherNode).connect(gainNode).connect(audioCtx.destination);
+        // }
+
+        console.log('Audio nodes created');
+        console.log('Oscillator:', oscillator);
+        console.log('Gain node:', gainNode);
+        // console.log('Bitcrusher node:', bitcrusherNode);
+
     }
 
     async function startAudio() {
+        console.log('Starting audio');
         await initializeAudioContext();
         createAudioNodes();
         oscillator.start();
-
         isAudioStarted = true;
+        console.log('Oscillator started');
     }
 
     function stopAudio() {
         if (audioCtx && audioCtx.state === 'running') {
             audioCtx.suspend();
+            console.log('Audio context suspended');
         }
         isAudioStarted = false;
     }
 
-        // Reactive statement to restart audio when useBitcrusher changes
-    $: if (audioCtx && isAudioStarted) {
-        // Reconnect the nodes when bitcrusher toggled
-        disconnectAudioNodes();
-        if (useBitcrusher && !bitcrusherNode) {
-            bitcrusherNode = new AudioWorkletNode(audioCtx, 'bitcrusher-processor', {
-                parameterData: { bitDepth, sampleRateReduction }
-            });
-        }
-        if (useBitcrusher) {
-            oscillator.connect(bitcrusherNode).connect(gainNode).connect(audioCtx.destination);
-        } else {
-            oscillator.connect(gainNode).connect(audioCtx.destination);
+    //     // Reactive statement to restart audio when useBitcrusher changes
+    // $: if (audioCtx && isAudioStarted) {
+    //     // Reconnect the nodes when bitcrusher toggled
+    //     disconnectAudioNodes();
+    //     if (useBitcrusher && !bitcrusherNode) {
+    //         bitcrusherNode = new AudioWorkletNode(audioCtx, 'bitcrusher-processor', {
+    //             parameterData: { bitDepth, sampleRateReduction }
+    //         });
+    //     }
+    //     if (useBitcrusher) {
+    //         oscillator.connect(bitcrusherNode).connect(gainNode).connect(audioCtx.destination);
+    //     } else {
+    //         oscillator.connect(gainNode).connect(audioCtx.destination);
+    //     }
+    // }
+
+
+
+    
+
+    // Reactively update note and octave when frequency changes
+    $: {
+        const closestNote = getClosestNoteFromFrequency($frequency, noteFrequencyMap);
+        if (closestNote) {
+            // UI will update when state changes
+            note.set(closestNote.slice(0, -1));
+            octave.set(parseInt(closestNote.slice(-1)));
         }
     }
 
+      // Reactively update frequency when note and octave change
+    $: if (noteFrequencyMap) {
+        const newFrequency = noteFrequencyMap[$note + $octave];
+        if (newFrequency) {
+            frequency.set(newFrequency);
+        }
+    }
+
+            // Automatically update the oscillator, gain, and bitcrusher when their respective store values change
+    $: if (audioCtx && isAudioStarted) {
+        if (oscillator) {
+            console.log(`Updating oscillator: frequency: ${$frequency}, waveform: ${$waveform}`);
+            oscillator.frequency.setValueAtTime($frequency, audioCtx.currentTime);
+            oscillator.type = $waveform;
+            console.log(`Oscillator updated: frequency: ${oscillator.frequency.value}, waveform: ${oscillator.type}`);
+        }
+
+        if (gainNode) {
+            console.log(`Updating gain node: gain: ${$gain}`);
+            gainNode.gain.setValueAtTime($gain, audioCtx.currentTime);
+            console.log(`Gain node updated: gain: ${gainNode.gain.value}`);
+        }
+
+        // if (bitcrusherNode) {
+        //     bitcrusherNode.port.postMessage({
+        //         bitDepth: $bitcrusherSettings.bitDepth,
+        //         sampleRateReduction: $bitcrusherSettings.sampleRateReduction
+        //     });
+        //     console.log(`Bitcrusher node updated: bitDepth: ${$bitcrusherSettings.bitDepth}, sampleRateReduction: ${$bitcrusherSettings.sampleRateReduction}`);
+        // }
+    }
+
+
+
+
     onMount(async () => {
+        console.log('Component Mounted');
         if (!window.AudioContext && !window.webkitAudioContext) {
             isAudioSupported = false;
             return;
@@ -196,11 +190,7 @@
 
 <main>
     {#if isAudioSupported}
-
         <div class="controls-panel">
- 
-    
-    
             <fieldset id="tone-fieldset">
                 <legend>Tone</legend>
 
@@ -217,21 +207,21 @@
                 <!-- Frequency adjust -->
                 <div class="control-group">
                     <label for="frequency-number">Frequency:</label>
-                    <input id="frequency-slider" name="frequency-slider" type="range" min="1" max="6000" step="1" bind:value={$frequency} on:input={updateFrequency} />
-                    <input id="frequency-number" name="frequency-number" type="number" min="1" max="6000" step="1" bind:value={$frequency} on:input={updateFrequency} />
+                    <input id="frequency-slider" name="frequency-slider" type="range" min="1" max="6000" step="1" bind:value={$frequency} />
+                    <input id="frequency-number" name="frequency-number" type="number" min="1" max="6000" step="1" bind:value={$frequency} />
                     <span>hz</span>
                 </div>
     
                 <!-- Note selection -->
                 <div class="control-group">
                     <label for="note-select">Note:</label>
-                    <select id="note-select" name="note-select" bind:value={$note} on:change={updateNoteOrOctave}>
+                    <select id="note-select" name="note-select" bind:value={$note}>
                         {#each notes as { note }}
                             <option value={note}>{note}</option>
                         {/each}
                     </select>
                     <label for="octave-select">Octave:</label>
-                    <select id="octave-select" name="octave-select" bind:value={$octave} on:change={updateNoteOrOctave}>
+                    <select id="octave-select" name="octave-select" bind:value={$octave}>
                         {#each Array.from({ length: 10 }, (_, i) => i) as i}
                             <option value={i}>{i}</option>
                         {/each}
@@ -241,7 +231,7 @@
                 <!-- Waveform selection -->
                 <div class="control-group">
                     <label for="waveform-select">Waveform:</label>
-                    <select id="waveform-select" name="waveform-select" bind:value={waveform} on:change={() => setWaveform(waveform)}>
+                    <select id="waveform-select" name="waveform-select" bind:value={$waveform}>
                         {#each waveforms as { waveform }}
                             <option value={waveform}>{waveform}</option>
                         {/each}
@@ -251,8 +241,8 @@
                 <!-- Volume/Gain adjust -->
                 <div class="control-group">
                     <label for="gain-slider">Volume (Gain): </label>
-                    <input id="gain-slider" type="range" min="0" max="1" step="0.01" bind:value={gainLevel} on:change={() => setGain(gainLevel)} />
-                    <span>{gainLevel}</span>
+                    <input id="gain-slider" type="range" min="0" max="1" step="0.01" bind:value={$gain} />
+                    <span>{$gain}</span>
                 </div>
             </fieldset>
     
@@ -262,19 +252,19 @@
                 <legend>Bitcrusher</legend>
                 <div class="control-group">
                     <label for="bitcrush-checkbox">Use Bitcrusher:</label>
-                    <input id="bitcrush-checkbox" name="bitcrush-toggle" type="checkbox" bind:checked={useBitcrusher} />
+                    <input id="bitcrush-checkbox" name="bitcrush-toggle" type="checkbox" bind:checked={$useBitcrusher} />
                 </div>
     
                 <div class="control-group">
                     <label for="bit-depth-slider">Bit depth: </label>
-                    <input id="bit-depth-slider" name="bit-depth" type="range" min="1" max="16" step="1" bind:value={bitDepth} on:change={updateBitcrusherParameters} />
-                    <span>{bitDepth}</span>
+                    <input id="bit-depth-slider" name="bit-depth" type="range" min="1" max="16" step="1" bind:value={$bitcrusherSettings.bitDepth} />
+                    <span>{$bitcrusherSettings.bitDepth}</span>
                 </div>
     
                 <div class="control-group">
                     <label for="sample-rate-reduction-slider">Sample rate reduction:</label>
-                    <input id="sampe-rate-reduction-slider" name="sampe-rate-reduction-slider" type="range" min="1" max="16" step="1" bind:value={sampleRateReduction} on:change={updateBitcrusherParameters} />
-                    <span>{sampleRateReduction}</span>
+                    <input id="sampe-rate-reduction-slider" name="sampe-rate-reduction-slider" type="range" min="1" max="16" step="1" bind:value={$bitcrusherSettings.sampleRateReduction} />
+                    <span>{$bitcrusherSettings.sampleRateReduction}</span>
                 </div>
             </fieldset>
         </div>
