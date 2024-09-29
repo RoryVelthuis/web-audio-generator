@@ -1,6 +1,6 @@
 <script>
     import { onMount } from 'svelte';
-    import { frequency, note, octave, gain, waveform, useBitcrusher, bitcrusherSettings } from '$lib/stores';
+    import { frequency, note, octave, gain, waveform, useBitcrusher, bitcrusherSettings, attack, decay, sustain, release } from '$lib/stores';
     import { getClosestNoteFromFrequency, generateNoteFrequencies } from '$lib/notes';
 
     let isAudioSupported = true;
@@ -97,15 +97,35 @@
         console.log('Starting audio');
         await initializeAudioContext();
         createAudioNodes();
-        oscillator.start();
+
+        const now = audioCtx.currentTime;
+
+        // Apply the attack
+        gainNode.gain.cancelScheduledValues(now);
+        gainNode.gain.setValueAtTime(0, now); // Start at 0 volume
+        gainNode.gain.linearRampToValueAtTime(1, now + $attack); // Ramp to full volume over the attack time
+    
+        // Apply the decay to sustain level
+        gainNode.gain.linearRampToValueAtTime($sustain, now + $attack + $decay); // Decay to sustain level
+
+        oscillator.start(now);
         isAudioStarted = true;
         console.log('Oscillator started');
     }
 
     function stopAudio() {
         if (audioCtx && audioCtx.state === 'running') {
-            audioCtx.suspend();
-            console.log('Audio context suspended');
+            const now = audioCtx.currentTime;
+
+            // Apply the release
+            gainNode.gain.cancelScheduledValues(now);
+            gainNode.gain.setValueAtTime(gainNode.gain.value, now); // Get current gain value
+            gainNode.gain.linearRampToValueAtTime(0, now + $release); // Fade out over the release time
+
+            oscillator.stop(now + $release); // Stop oscillator after release time
+
+            // audioCtx.suspend();
+            // console.log('Audio context suspended');
         }
         isAudioStarted = false;
     }
@@ -243,6 +263,34 @@
                     <label for="gain-slider">Volume (Gain): </label>
                     <input id="gain-slider" type="range" min="0" max="1" step="0.01" bind:value={$gain} />
                     <span>{$gain}</span>
+                </div>
+            </fieldset>
+
+            <!-- Envelope controls -->
+            <fieldset>
+                <legend>Envelope</legend>
+                <div class="control-group">
+                    <label for="attack-slider">Attack:</label>
+                    <input id="attack-slider" type="range" min="0" max="5" step="0.01" bind:value={$attack} />
+                    <span>{$attack} seconds</span>
+                </div>
+
+                <div class="control-group">
+                    <label for="decay-slider">Decay:</label>
+                    <input id="decay-slider" type="range" min="0" max="5" step="0.01" bind:value={$decay} />
+                    <span>{$decay} seconds</span>
+                </div>
+
+                <div class="control-group">
+                    <label for="sustain-slider">Sustain:</label>
+                    <input id="sustain-slider" type="range" min="0" max="1" step="0.01" bind:value={$sustain} />
+                    <span>{$sustain} (0 to 1)</span>
+                </div>
+
+                <div class="control-group">
+                    <label for="release-slider">Release:</label>
+                    <input id="release-slider" type="range" min="0" max="5" step="0.01" bind:value={$release} />
+                    <span>{$release} seconds</span>
                 </div>
             </fieldset>
     
