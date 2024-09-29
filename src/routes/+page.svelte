@@ -51,6 +51,7 @@
         // Update note and octave if the frequency matches a predefined note
         const closestNote = getClosestNoteFromFrequency(freq, noteFrequencyMap);
 
+        // If a note is found, update the note and octave
         const matchedNote = closestNote.slice(0, -1); // All characters except the last one
         const matchedOctave = parseInt(closestNote.slice(-1)); // The last character as an integer
         if (matchedNote && matchedOctave !== undefined) {
@@ -79,16 +80,18 @@
     }
 
     function updateNoteOrOctave() {
-        let combined = $note + $octave;
-
-        console.log(`Note: ${$note}, Octave: ${$octave}`);
-        console.log(`Note: ${combined}`);
-
-        let freq = noteFrequencyMap[combined];
-        console.log(`Setting frequency to ${freq}`);
-
-        setFrequency(freq);
+        let combined = $note + $octave; // Combine note and octave
+        let freq = noteFrequencyMap[combined]; // Get the frequency for the note
+        setFrequency(freq); // Set the frequency
     }
+
+    function updateBitcrusherParameters() {
+        if (bitcrusherNode) {
+            bitcrusherNode.port.postMessage({ bitDepth, sampleRateReduction });
+        }
+    }
+
+    
 
     async function initializeAudioContext() {
         if (!audioCtx) {
@@ -198,7 +201,7 @@
  
     
     
-            <fieldset>
+            <fieldset id="tone-fieldset">
                 <legend>Tone</legend>
 
                 <!-- Playback button -->
@@ -244,16 +247,15 @@
                         {/each}
                     </select>
                 </div>
-            </fieldset>
-    
-            <!-- Volume/Gain adjust -->
-            <fieldset>
+
+                <!-- Volume/Gain adjust -->
                 <div class="control-group">
                     <label for="gain-slider">Volume (Gain): </label>
                     <input id="gain-slider" type="range" min="0" max="1" step="0.01" bind:value={gainLevel} on:change={() => setGain(gainLevel)} />
                     <span>{gainLevel}</span>
                 </div>
             </fieldset>
+    
     
             <!-- Bitcrusher process controls -->
             <fieldset>
@@ -265,12 +267,14 @@
     
                 <div class="control-group">
                     <label for="bit-depth-slider">Bit depth: </label>
-                    <input id="bit-depth-slider" name="bit-depth" type="range" min="1" max="16" step="1" bind:value={bitDepth} on:change={() => bitcrusherNode.port.postMessage({ bitDepth })} />
+                    <input id="bit-depth-slider" name="bit-depth" type="range" min="1" max="16" step="1" bind:value={bitDepth} on:change={updateBitcrusherParameters} />
+                    <span>{bitDepth}</span>
                 </div>
     
                 <div class="control-group">
                     <label for="sample-rate-reduction-slider">Sample rate reduction:</label>
-                    <input id="sampe-rate-reduction-slider" name="sampe-rate-reduction-slider" type="range" min="1" max="16" step="1" bind:value={sampleRateReduction} on:change={() => bitcrusherNode.port.postMessage({ sampleRateReduction })} />
+                    <input id="sampe-rate-reduction-slider" name="sampe-rate-reduction-slider" type="range" min="1" max="16" step="1" bind:value={sampleRateReduction} on:change={updateBitcrusherParameters} />
+                    <span>{sampleRateReduction}</span>
                 </div>
             </fieldset>
         </div>
@@ -282,6 +286,20 @@
 </main>
 
 <style>
+
+    .controls-panel {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: start;
+        flex-direction: row;
+        gap: 20px;
+
+    }
+
+    #tone-fieldset{
+        width: 300px;
+    }
+
     fieldset {
         border: 1px solid #ccc;
         padding: 10px;
