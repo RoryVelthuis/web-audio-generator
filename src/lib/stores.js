@@ -15,3 +15,4 @@ export const release = writable(0.3);
 
 export const useOvertones = writable(false);
 export const numberOfOvertones = writable(5);
+export const overtones = writable([]);
