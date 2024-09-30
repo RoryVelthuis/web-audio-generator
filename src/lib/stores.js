@@ -13,3 +13,5 @@ export const decay = writable(0.2);
 export const sustain = writable(0.5);
 export const release = writable(0.3);
 
+export const useOvertones = writable(false);
+export const numberOfOvertones = writable(5);

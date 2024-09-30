@@ -1,6 +1,6 @@
 <script>
     import { onMount } from 'svelte';
-    import { frequency, note, octave, gain, waveform, useBitcrusher, bitcrusherSettings, attack, decay, sustain, release } from '$lib/stores';
+    import { frequency, note, octave, gain, waveform, useBitcrusher, bitcrusherSettings, attack, decay, sustain, release, useOvertones, numberOfOvertones } from '$lib/stores';
     import { getClosestNoteFromFrequency, generateNoteFrequencies } from '$lib/notes';
 
     let isAudioSupported = true;
@@ -11,6 +11,10 @@
     let oscillator;
     let gainNode;
     let bitcrusherNode;
+
+    let MAX_FREQUENCY = 24000;
+    let overtones = []; // Array to store overtone oscillators
+
 
 
 
@@ -56,20 +60,51 @@
         // Disconnect and clear previous nodes if they exist
         if (oscillator) oscillator.disconnect();
         if (gainNode) gainNode.disconnect();
+        overtones.forEach(({ overtone, overtoneGain }) => {
+            overtone.disconnect();
+            overtoneGain.disconnect();
+        }); // Disconnect all overtones
+        overtones = []; // Clear previous overtones
 
-        // Create an oscillator node
+        // Create fundemental oscillator node
         console.log('Creating oscillator node');
         oscillator = audioCtx.createOscillator();
         oscillator.type = $waveform;
         oscillator.frequency.setValueAtTime($frequency, audioCtx.currentTime);
 
-        // Create a gain node
+        // Create gain node for fundamental oscillator
         console.log('Creating gain node');
         gainNode = audioCtx.createGain();
         gainNode.gain.setValueAtTime($gain, audioCtx.currentTime);
 
         console.log('Connecting oscillator to gain node and gain node to destination');
         oscillator.connect(gainNode).connect(audioCtx.destination);
+
+        console.log(`Overtones: ${$useOvertones}, Number of overtones: ${$numberOfOvertones}`);
+        if($useOvertones) {
+            console.log('Overtones enabled, creating overtones');
+            for(let i = 1; i <= $numberOfOvertones; i++) {
+                let overtone = audioCtx.createOscillator();
+                overtone.type = $waveform;
+                // Frequency is a multiple of the fundamental frequency
+                let overtoneFrequency = $frequency * (i + 1);
+                if(overtoneFrequency > MAX_FREQUENCY){
+                    console.log(`Overtone (${i}) frequency exceeds maximum frequency, stopping`);
+                    continue;
+                }
+
+                overtone.frequency.setValueAtTime(overtoneFrequency, audioCtx.currentTime);
+
+                // Gain for overtones decreases with each harmonic (1/i)
+                let overtoneGain = audioCtx.createGain();
+                overtoneGain.gain.setValueAtTime($gain / (i + 1), audioCtx.currentTime);
+
+                // Add overtone to the array so it can be started later with ADSR envelope
+                overtone.connect(overtoneGain).connect(audioCtx.destination);
+                overtones.push({ overtone, overtoneGain });
+                console.log(`Overtone (${i}) created and connected. Frequency: ${overtoneFrequency}, Gain: ${$gain / (i + 1)}`);
+            }
+        }
 
 
         // If bitcrusher is enabled, create the bitcrusher node
@@ -87,8 +122,9 @@
         // }
 
         console.log('Audio nodes created');
-        console.log('Oscillator:', oscillator);
-        console.log('Gain node:', gainNode);
+        console.log(`${overtones.length} overtones created`);
+        // console.log('Oscillator:', oscillator);
+        // console.log('Gain node:', gainNode);
         // console.log('Bitcrusher node:', bitcrusherNode);
 
     }
@@ -108,6 +144,14 @@
         // Apply the decay to sustain level
         gainNode.gain.linearRampToValueAtTime($sustain, now + $attack + $decay); // Decay to sustain level
 
+        overtones.forEach(({ overtone, overtoneGain }) => {
+            overtone.start(now);
+            overtoneGain.gain.cancelScheduledValues(now);
+            overtoneGain.gain.setValueAtTime(0, now);
+            overtoneGain.gain.linearRampToValueAtTime($gain / overtone.frequency.value, now + $attack);
+            overtoneGain.gain.linearRampToValueAtTime($sustain, now + $attack + $decay);
+        });
+
         oscillator.start(now);
         isAudioStarted = true;
         console.log('Oscillator started');
@@ -123,6 +167,14 @@
             gainNode.gain.linearRampToValueAtTime(0, now + $release); // Fade out over the release time
 
             oscillator.stop(now + $release); // Stop oscillator after release time
+
+            // Apply the release to each overtone
+            overtones.forEach(({ overtone, overtoneGain }) => {
+                overtoneGain.gain.cancelScheduledValues(now);
+                overtoneGain.gain.setValueAtTime(overtoneGain.gain.value, now); // Get current gain value
+                overtoneGain.gain.linearRampToValueAtTime(0, now + $release); // Fade out over the release time
+                overtone.stop(now + $release); // Stop overtone after release time
+            });
 
             // audioCtx.suspend();
             // console.log('Audio context suspended');
@@ -171,16 +223,27 @@
             // Automatically update the oscillator, gain, and bitcrusher when their respective store values change
     $: if (audioCtx && isAudioStarted) {
         if (oscillator) {
-            console.log(`Updating oscillator: frequency: ${$frequency}, waveform: ${$waveform}`);
             oscillator.frequency.setValueAtTime($frequency, audioCtx.currentTime);
             oscillator.type = $waveform;
-            console.log(`Oscillator updated: frequency: ${oscillator.frequency.value}, waveform: ${oscillator.type}`);
+            console.log(`Fundemental oscillator updated: frequency: \n${oscillator.frequency.value}, waveform: ${oscillator.type}`);
+
+            if($useOvertones) {
+                console.log('Updating overtones');
+                for(let i = 1; i <= $numberOfOvertones && i <= overtones.length; i++) {
+                    let newFrequency = $frequency * (i + 1);
+                    overtones[i - 1].overtone.frequency.setValueAtTime(newFrequency, audioCtx.currentTime);
+                    console.log(`Overtone updated: frequency: ${overtones[i - 1].overtone.frequency.value}`);
+                }
+                console.log(`${overtones.length} overtones updated`);
+            }
         }
 
         if (gainNode) {
-            console.log(`Updating gain node: gain: ${$gain}`);
+            console.log(`Updating fundemental gain node: gain: ${$gain}`);
             gainNode.gain.setValueAtTime($gain, audioCtx.currentTime);
             console.log(`Gain node updated: gain: ${gainNode.gain.value}`);
+
+
         }
 
         // if (bitcrusherNode) {
@@ -263,6 +326,21 @@
                     <label for="gain-slider">Volume (Gain): </label>
                     <input id="gain-slider" type="range" min="0" max="1" step="0.01" bind:value={$gain} />
                     <span>{$gain}</span>
+                </div>
+            </fieldset>
+
+            <fieldset>
+                <legend>Overtones</legend>
+                <div class="control-group">
+                    <!-- checkbox for overtones enabled -->
+                    <label for="overtones-checkbox">Use Overtones:</label>
+                    <input id="overtones-checkbox" name="overtones-toggle" type="checkbox" bind:checked={$useOvertones} />
+
+                </div>
+                <div class="control-group">
+                    <label for="overtones-slider">Number of overtones:</label>
+                    <input id="overtones-slider" type="range" min="1" max="10" step="1" bind:value={$numberOfOvertones} />
+                    <span>{$numberOfOvertones}</span>
                 </div>
             </fieldset>
 
