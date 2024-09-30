@@ -100,7 +100,7 @@
 
                 // Gain for overtones decreases with each harmonic (1/i)
                 let overtoneGain = audioCtx.createGain();
-                overtoneGain.gain.setValueAtTime($gain / (i + 1), audioCtx.currentTime);
+                overtoneGain.gain.value = $gain / (i + 1)
 
                 // Add overtone to the array so it can be started later with ADSR envelope
                 overtone.connect(overtoneGain).connect(audioCtx.destination);
@@ -151,15 +151,18 @@
         gainNode.gain.setValueAtTime(0, now); // Start at 0 volume
         gainNode.gain.linearRampToValueAtTime(1, now + $attack); // Ramp to full volume over the attack time
     
-        // Apply the decay to sustain level
-        gainNode.gain.linearRampToValueAtTime($sustain, now + $attack + $decay); // Decay to sustain level
+        // Apply the decay to sustain level relative to $gain
+        const sustainLevel = $gain * $sustain;
+        gainNode.gain.linearRampToValueAtTime(sustainLevel, now + $attack + $decay); // Decay to sustain level
 
-        $overtones.forEach(({ overtone, overtoneGain }) => {
+        // Apply the ADSR envelope to each overtone
+        $overtones.forEach(({ overtone, overtoneGain }, index) => {
             overtone.start(now);
             overtoneGain.gain.cancelScheduledValues(now);
-            overtoneGain.gain.setValueAtTime(0, now);
-            overtoneGain.gain.linearRampToValueAtTime($gain / overtone.frequency.value, now + $attack);
-            overtoneGain.gain.linearRampToValueAtTime($sustain, now + $attack + $decay);
+            overtoneGain.gain.setValueAtTime(0, now); // Start at 0 volume
+            const overtoneGainValue = $gain / (index + 2); // Calculate giant relative to index
+            overtoneGain.gain.linearRampToValueAtTime(overtoneGainValue / (index + 2), now + $attack); // Ramp to calculated gain over the attack time
+            overtoneGain.gain.linearRampToValueAtTime(sustainLevel / (index + 2), now + $attack + $decay); // Decay to sustain level
         });
 
         oscillator.start(now);
@@ -185,7 +188,6 @@
                 overtoneGain.gain.linearRampToValueAtTime(0, now + $release); // Fade out over the release time
                 overtone.stop(now + $release); // Stop overtone after release time
             });
-
             // audioCtx.suspend();
             // console.log('Audio context suspended');
         }
@@ -230,9 +232,8 @@
         }
     }
 
-            // Automatically update the oscillator, gain, and bitcrusher when their respective store values change
+    // Automatically update the oscillator, gain, and bitcrusher when their respective store values change
     $: if (audioCtx && isAudioStarted) {
-
         if (oscillator) {
             oscillator.frequency.setValueAtTime($frequency, audioCtx.currentTime);
             oscillator.type = $waveform;
@@ -257,7 +258,14 @@
             gainNode.gain.setValueAtTime($gain, audioCtx.currentTime);
             console.log(`Gain node updated: gain: ${gainNode.gain.value}`);
 
-
+            if($useOvertones) {
+                console.log('Updating overtone gains');
+                $overtones.forEach(({ overtoneGain }, index) => {
+                    const overtoneGainValue = $gain / (index + 2); // Calculate giant relative to index
+                    overtoneGain.gain.setValueAtTime(overtoneGainValue, audioCtx.currentTime);
+                    console.log(`Overtone gain updated: gain: ${overtoneGain.gain.value}`);
+                });
+            }
         }
 
         // if (bitcrusherNode) {
@@ -345,22 +353,26 @@
 
             <fieldset>
                 <legend>Overtones</legend>
+                {#if isAudioStarted}
+                    <span style="color:red; font-size:0.8rem;">Can't adjust while playing</span>
+                {/if}
                 <div class="control-group">
                     <!-- checkbox for overtones enabled -->
                     <label for="overtones-checkbox">Use Overtones:</label>
-                    <input id="overtones-checkbox" name="overtones-toggle" type="checkbox" bind:checked={$useOvertones} />
+                    <input id="overtones-checkbox" name="overtones-checkbox" type="checkbox" bind:checked={$useOvertones}  disabled={isAudioStarted} />
 
                 </div>
                 <div class="control-group">
                     <label for="overtones-slider">Number of overtones:</label>
-                    <input id="overtones-slider" type="range" min="1" max="10" step="1" bind:value={$numberOfOvertones} />
+                    <input id="overtones-slider" type="range" min="1" max="10" step="1" bind:value={$numberOfOvertones}  disabled={isAudioStarted}/>
                     <span>{$numberOfOvertones}</span>
                 </div>
 
                 <div class="control-group">
-                    {#each $overtones as { overtone, overtoneGain }}
-                        <label for="overtone-slider">Overtone:</label>
-                        <span>{overtone.frequency.value.toFixed(2)} hz</span>
+                    {#each $overtones as { overtone, overtoneGain }, index}
+                        <label for="overtone-slider">Overtone {index + 1}</label>
+                        <span>Freq: {overtone.frequency.value.toFixed(2)} hz</span>
+                        <span>Gain: {overtoneGain.gain.value.toFixed(2)}</span>
                     {/each}
                 </div>
             </fieldset>
