@@ -13,8 +13,29 @@ This project is a web-based application that makes use of the Web Audio API to c
 
 ## Features
 
-- Generate different types of waveforms (sine, square, sawtooth, triangle)
-- Control frequency
+- **Waveform Generation**:
+  - Generate different types of waveforms: sine, square, sawtooth, and triangle.
+
+- **Frequency Control**:
+  - Adjust the frequency using a range input and a number input.
+
+- **Volume Control**:
+  - Control the volume (gain) using a slider.
+
+- **Note and Octave Selection**:
+  - Select musical notes and octaves, with automatic frequency calculation.
+
+- **Overtones**:
+  - Enable or disable overtones.
+  - Adjust the number of overtones.
+  - Display and control individual overtone frequencies and gains.
+
+- **Envelope Control**:
+  - Control the attack, decay, sustain, and release (ADSR) envelope parameters.
+
+- **User Interface**:
+  - A user-friendly interface with sliders, checkboxes, and buttons to control audio parameters.
+
 
 ## Installation
 
